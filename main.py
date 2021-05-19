@@ -108,11 +108,12 @@ def godunov_acous(IC,dx,dt,T, lambd): # first order upwind
     sol = np.zeros((2,N,int(T//dt)+1)) # rows: spatial, columns: temporal (+1 to account for t=0)
     sol[:,:,0] = decompose(IC)
 
-    for n in range(1,int(T//dt)+1): # progress in time but excluding t=0
-        for i in range(sol.shape[1]): # progress in space
-            for j in range(lambd.shape[0]):
-                sol[j,i,n] = sol[j,i,n-1] - dt/dx*(plus(lambd[j])*(sol[j,(i)%N,n-1]-sol[j,(i-1)%N,n-1])+minus(lambd[j])*(sol[j,(i+1)%N,n-1]-sol[j,(i)%N,n-1]))
-            
+    for j in range(lambd.shape[0]):
+        if lambd[j] < 0:
+            sol[j,:,:] = sol[j,::-1,:] 
+        sol[j,:,:] = Upwind_lin(sol[j,:,0],dx,dt,T,abs(lambd[j]))
+        if lambd[j] < 0:
+            sol[j,:,:] = sol[j,::-1,:]   
     return sol
 
 def beamwarm_acous(IC,dx,dt,T, lambd): # beam warming
