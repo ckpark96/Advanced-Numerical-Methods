@@ -61,7 +61,7 @@ def vanLeer(a): # flux limiter
 
 
 dx = L/N
-T = L*10/ubar
+T = L*5/ubar
 dt = 0.9*dx/ubar
 dtpT = L/ubar/dt
 x = np.linspace(dx/2,L-dx/2,N) # Uniform grid
@@ -81,6 +81,7 @@ IC = f(x)*dx
 
 
 ''' Acoustic '''
+T = T/2
 A = np.array([[0, -4],[-1,0]])
 eigval, eigvec = la.eig(A) # eigenvec are wrong
 eigval = np.sort(eigval)
@@ -145,26 +146,48 @@ def beamwarm_lim_acous(IC,dx,dt,T, lambd): # beam warming
 IC2 =np.vstack(([f(x)*dx],np.ones_like(f(x))*dx))
 
 
-fig,ax = plt.subplots(1,2)
+fig,ax = plt.subplots(2,2)
+ax[0][0].set_title("p")
+ax[0][1].set_title("u")
+ax[1][0].set_title("w1")
+ax[1][1].set_title("w2")
 sol = godunov_acous(IC2,dx,dt/np.max(eigval),T,eigval)
 sol = sol/dx
-final = recompose(sol[:,:,sol.shape[2]//2])
-ax[0].plot(final[0,:])
-ax[1].plot(final[1,:])
+final = sol[:,:,-1]
+ax[1][0].plot(final[0,:],label="Godunov upwind")
+ax[1][1].plot(final[1,:],label="Godunov upwind")
+final = recompose(final)
+ax[0][0].plot(final[0,:],label="Godunov upwind")
+ax[0][1].plot(final[1,:],label="Godunov upwind")
 sol = beamwarm_acous(IC2,dx,dt/np.max(eigval),T,eigval)
 sol = sol/dx
-final = recompose(sol[:,:,sol.shape[2]//2])
-ax[0].plot(final[0,:],".-")
-ax[1].plot(final[1,:],".-")
+final = sol[:,:,-1]
+ax[1][0].plot(final[0,:],".-",label="Beam Warming")
+ax[1][1].plot(final[1,:],".-",label="Beam Warming")
+final = recompose(final)
+ax[0][0].plot(final[0,:],".-",label="Beam Warming")
+ax[0][1].plot(final[1,:],".-",label="Beam Warming")
 sol = beamwarm_lim_acous(IC2,dx,dt/np.max(eigval),T,eigval)
 sol = sol/dx
-final = recompose(sol[:,:,sol.shape[2]//2])
-ax[0].plot(final[0,:],".")
-ax[1].plot(final[1,:],".")
+final = sol[:,:,-1]
+ax[1][0].plot(final[0,:],".-",label="Van Leer flux limiter")
+ax[1][1].plot(final[1,:],".-",label="Van Leer flux limiter")
+final = recompose(final)
+ax[0][0].plot(final[0,:],".-",label="Van Leer flux limiter")
+ax[0][1].plot(final[1,:],".-",label="Van Leer flux limiter")
 # Exact
 final = IC2/dx
-ax[0].plot(final[0,:],"--")
-ax[1].plot(final[1,:],"--")
+final = decompose(final)
+ax[1][0].plot(final[0,:],"k--",label="exact")
+ax[1][1].plot(final[1,:],"k--",label="exact")
+final = recompose(final)
+ax[0][0].plot(final[0,:],"k--",label="exact")
+ax[0][1].plot(final[1,:],"k--",label="exact")
+
+ax[0][0].legend()
+ax[0][1].legend()
+ax[1][0].legend()
+ax[1][1].legend()
 plt.show()
 
 
