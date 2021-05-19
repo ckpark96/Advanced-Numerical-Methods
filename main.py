@@ -14,7 +14,7 @@ def f(x):
     res[(x>=6)&(x<=8)] = 1
     return res
 
-def Upwind_lin(IC,dx,dt,T): # first order upwind
+def Upwind_lin(IC,dx,dt,T,ubar=ubar): # first order upwind
     sol = np.zeros((IC.shape[0],int(T//dt)+1)) # rows: spatial, columns: temporal (+1 to account for t=0)
     sol[:,0] = IC # Add the initial condition
 
@@ -24,7 +24,7 @@ def Upwind_lin(IC,dx,dt,T): # first order upwind
 
     return sol
 
-def BeamWarming_lin(IC,dx,dt,T): # second order upwind
+def BeamWarming_lin(IC,dx,dt,T,ubar=ubar): # second order upwind
     sol = np.zeros((IC.shape[0],int(T//dt)+1))
     sol[:,0] = IC
 
@@ -35,7 +35,7 @@ def BeamWarming_lin(IC,dx,dt,T): # second order upwind
     return sol
 
 
-def BeamWarming_flux_limited_lin(IC,dx,dt,T,fluxlimiter):
+def BeamWarming_flux_limited_lin(IC,dx,dt,T,fluxlimiter,ubar=ubar):
     sol = np.zeros((IC.shape[0],int(T//dt)+1))
     sol[:,0] = IC
     N = IC.shape[0]
@@ -83,36 +83,90 @@ IC = f(x)*dx
 ''' Acoustic '''
 A = np.array([[0, -4],[-1,0]])
 eigval, eigvec = la.eig(A) # eigenvec are wrong
-lam_neg = eigval[1]
-lam_pos = eigval[0]
-Z = 2
-eigvec1 = np.array([[-Z],[1]])
-eigvec2 = np.array([[Z],[1]])
-R = np.hstack((eigvec1,eigvec2))
+eigval = np.sort(eigval)
+eigvec = eigvec[:,::-1]
+Rinv = np.linalg.inv(eigvec)
+
+def decompose(state):
+    # (2,N) shape
+    return Rinv@state
+
+def recompose(state):
+    # (2,N) shape
+    return eigvec@state
+
+def plus(x):
+    return max(0,x)
+
+def minus(x):
+    return min(0,x)
 
 
-def godunov_acous(IC,dx,dt,T,lamp,lamn): # first order upwind
-    N = IC.shape[2]
-    sol_p = np.zeros((IC.shape[2],int(T//dt)+1)) # rows: spatial, columns: temporal (+1 to account for t=0)
-    sol_u = np.zeros((IC.shape[2],int(T//dt)+1))
-    sol_p[:,0] = IC[0,:,:] # Add the initial condition
-    sol_u[:,0] = IC[1,:,:]
+def godunov_acous(IC,dx,dt,T, lambd): # first order upwind
+    N = IC.shape[1]
+    sol = np.zeros((2,N,int(T//dt)+1)) # rows: spatial, columns: temporal (+1 to account for t=0)
+    sol[:,:,0] = decompose(IC)
 
     for n in range(1,int(T//dt)+1): # progress in time but excluding t=0
-        for i in range(sol_p.shape[0]): # progress in space
-            sol_p[i,n] = sol_p[i,n-1]-dt/dx*(lamp*(sol_p[i,n-1]-sol_p[i-1,n-1])+lamn*(sol_p[(i+1)%N,n-1]-sol_p[i,n-1]))
-            sol_u[i,n] = sol_u[i,n-1]-dt/dx*(lamp*(sol_u[i,n-1]-sol_u[i-1,n-1])+lamn*(sol_u[(i+1)%N,n-1]-sol_u[i,n-1]))
+        for i in range(sol.shape[1]): # progress in space
+            for j in range(lambd.shape[0]):
+                sol[j,i,n] = sol[j,i,n-1] - dt/dx*(plus(lambd[j])*(sol[j,(i)%N,n-1]-sol[j,(i-1)%N,n-1])+minus(lambd[j])*(sol[j,(i+1)%N,n-1]-sol[j,(i)%N,n-1]))
             
-    return sol_p, sol_u
+    return sol
+
+def beamwarm_acous(IC,dx,dt,T, lambd): # beam warming
+    N = IC.shape[1]
+    sol = np.zeros((2,N,int(T//dt)+1)) # rows: spatial, columns: temporal (+1 to account for t=0)
+    sol[:,:,0] = decompose(IC)
+
+    for j in range(lambd.shape[0]):
+        if lambd[j] < 0:
+            sol[j,:,:] = sol[j,::-1,:] 
+        sol[j,:,:] = BeamWarming_lin(sol[j,:,0],dx,dt,T,abs(lambd[j]))
+        if lambd[j] < 0:
+            sol[j,:,:] = sol[j,::-1,:]       
+    return sol
+
+def beamwarm_lim_acous(IC,dx,dt,T, lambd): # beam warming
+    N = IC.shape[1]
+    sol = np.zeros((2,N,int(T//dt)+1)) # rows: spatial, columns: temporal (+1 to account for t=0)
+    sol[:,:,0] = decompose(IC)
+
+    for j in range(lambd.shape[0]):
+        if lambd[j] < 0:
+            sol[j,:,:] = sol[j,::-1,:] 
+        sol[j,:,:] = BeamWarming_flux_limited_lin(sol[j,:,0],dx,dt,T,vanLeer,abs(lambd[j]))
+        if lambd[j] < 0:
+            sol[j,:,:] = sol[j,::-1,:]       
+    return sol
 
 
 
-IC2 = np.array([[f(x)*dx],[np.ones_like(f(x))*dx]])
+IC2 =np.vstack(([f(x)*dx],np.ones_like(f(x))*dx))
 
-sol_p, sol_u = godunov_acous(IC2,dx,dt,T,lam_pos,lam_neg)
-sol_p = sol_p/dx
-print(sol_p.shape)
-sol_u = sol_u/dx
+
+fig,ax = plt.subplots(1,2)
+sol = godunov_acous(IC2,dx,dt/np.max(eigval),T,eigval)
+sol = sol/dx
+final = recompose(sol[:,:,sol.shape[2]//2])
+ax[0].plot(final[0,:])
+ax[1].plot(final[1,:])
+sol = beamwarm_acous(IC2,dx,dt/np.max(eigval),T,eigval)
+sol = sol/dx
+final = recompose(sol[:,:,sol.shape[2]//2])
+ax[0].plot(final[0,:],".-")
+ax[1].plot(final[1,:],".-")
+sol = beamwarm_lim_acous(IC2,dx,dt/np.max(eigval),T,eigval)
+sol = sol/dx
+final = recompose(sol[:,:,sol.shape[2]//2])
+ax[0].plot(final[0,:],".")
+ax[1].plot(final[1,:],".")
+# Exact
+final = IC2/dx
+ax[0].plot(final[0,:],"--")
+ax[1].plot(final[1,:],"--")
+plt.show()
+
 
 # plt.figure()
 # plt.title('p')
